@@ -20,64 +20,64 @@ jobs:
         include:
           - os: macos-latest
             artifact_name: c2patool_mac_universal.zip
-            uploaded_asset_name: ${{ RELEASE_TAG }}-universal-apple-darwin.zip
-            sbom_asset_name: ${{ RELEASE_TAG }}-universal-apple-darwin-sbom.json
+            uploaded_asset_name: ${RELEASE_TAG}-universal-apple-darwin.zip
+            sbom_asset_name: ${RELEASE_TAG}-universal-apple-darwin-sbom.json
           - os: ubuntu-latest
             artifact_name: c2patool_linux_intel.tar.gz
-            uploaded_asset_name: ${{ RELEASE_TAG }}-x86_64-unknown-linux-gnu.tar.gz
-            sbom_asset_name: ${{ RELEASE_TAG }}-x86_64-unknown-linux-gnu-sbom.json
+            uploaded_asset_name: ${RELEASE_TAG}-x86_64-unknown-linux-gnu.tar.gz
+            sbom_asset_name: ${RELEASE_TAG}-x86_64-unknown-linux-gnu-sbom.json
           - os: windows-latest
             artifact_name: c2patool_win_intel.zip
-            uploaded_asset_name: ${{ RELEASE_TAG }}-x86_64-pc-windows-msvc.zip
-            sbom_asset_name: ${{ RELEASE_TAG }}-x86_64-pc-windows-msvc-sbom.json
+            uploaded_asset_name: ${RELEASE_TAG}-x86_64-pc-windows-msvc.zip
+            sbom_asset_name: ${RELEASE_TAG}-x86_64-pc-windows-msvc-sbom.json
 
     steps:
       - name: Checkout repository
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
           components: llvm-tools-preview
 
       - name: Install cargo-sbom
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sbom
           version: "0.9.1"
 
       - name: Cache Rust dependencies
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: Swatinem/rust-cache@v2
 
       - name: Run make release
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         run: cd cli && make release
 
       - name: Upload binary to GitHub
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: svenstaro/upload-release-action@v1-release
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/${{ matrix.artifact_name }}
           asset_name: ${{ matrix.uploaded_asset_name }}
-          tag: ${{ RELEASE_TAG }}
+          tag: ${RELEASE_TAG}
           overwrite: true
 
       - name: Generate SBOM
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         run: cd cli && cargo sbom > c2patool-sbom.json
 
       - name: Upload SBOM to Github
-        if: ${{ RELEASE_TAG }}
+        if: ${RELEASE_TAG}
         uses: svenstaro/upload-release-action@v1-release
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: cli/c2patool-sbom.json
           asset_name: ${{ matrix.sbom_asset_name }}
-          tag: ${{ RELEASE_TAG }}
+          tag: ${RELEASE_TAG}
           overwrite: true
