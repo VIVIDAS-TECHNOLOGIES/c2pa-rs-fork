@@ -28,10 +28,15 @@ jobs:
         run: |
           # Get the current version from Cargo.toml
           CURRENT_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | cut -d '"' -f2)
-          # Get the latest release tag
           LATEST_TAG=$(git tag --list 'c2patool-*' --sort=-v:refname | head -n1 | sed 's/c2patool-//')
-          
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Error: Unable to determine the current version from Cargo.toml"
+            exit 1
+          fi
+
           if [ -z "$LATEST_TAG" ]; then
+            echo "No previous tags found. This will be the first release."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "version=c2patool-$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           elif [ "$CURRENT_VERSION" != "$LATEST_TAG" ]; then
@@ -64,25 +69,25 @@ jobs:
           generate_release_notes: true
           body: |
             ## What's Changed
-            
+
             This release includes the following changes:
-            
+
             ${{ github.event.head_commit.message }}
-            
+
             ## Installation
-            
+
             ### macOS
             ```bash
             curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.zip -o c2patool.zip
             unzip c2patool.zip
             ```
-            
+
             ### Linux
             ```bash
             curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz -o c2patool.tar.gz
             tar -xzf c2patool.tar.gz
             ```
-            
+
             ### Windows
             ```powershell
             Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.zip" -OutFile "c2patool.zip"
@@ -98,9 +103,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-latest, ubuntu-latest, windows-latest ]
-        rust_version: [ stable ]
-        experimental: [ false ]
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        rust_version: [stable]
+        experimental: [false]
         include:
           - os: macos-latest
             artifact_name: c2patool_mac_universal.zip
@@ -132,7 +137,7 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sbom
-          version: '0.9.1'
+          version: "0.9.1"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
