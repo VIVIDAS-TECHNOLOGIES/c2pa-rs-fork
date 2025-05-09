@@ -61,38 +61,10 @@ pub struct DashIO {
 }
 
 impl DashIO {
-    pub fn parse_manifest(manifest_path: &Path) -> Result<DashManifest> {
-        let manifest_content = std::fs::read_to_string(manifest_path)?;
-        let manifest: DashManifest = from_str(&manifest_content)
-            .map_err(|e| crate::error::Error::OtherError(format!("Failed to parse DASH manifest: {}", e).into()))?;
-        Ok(manifest)
-    }
-
-    pub fn get_init_segments(&self, manifest: &DashManifest, base_path: &Path) -> Vec<String> {
-        let mut init_segments = Vec::new();
-        
-        for period in &manifest.periods {
-            for adaptation_set in &period.adaptation_sets {
-                for representation in &adaptation_set.representations {
-                    if let Some(template) = &representation.segment_template {
-                        let init_path = template.initialization
-                            .replace("$RepresentationID$", &representation.id);
-                        let full_path = base_path.join(&init_path);
-                        if let Some(path_str) = full_path.to_str() {
-                            init_segments.push(path_str.to_string());
-                        }
-                    }
-                }
-            }
+    pub fn new(asset_type: &str) -> Self {
+        Self {
+            bmff_io: BmffIO::new(asset_type),
         }
-        
-        init_segments
-    }
-
-    pub fn get_fragment_pattern(&self, _manifest: &DashManifest, base_path: &Path) -> String {
-        // For now, we'll use a simple pattern that matches all .m4s files
-        // In a real implementation, we would parse the segment template pattern
-        base_path.join("chunk-stream*-*.m4s").to_str().unwrap_or("").to_string()
     }
 }
 
