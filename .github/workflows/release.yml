@@ -26,7 +26,6 @@ jobs:
       - name: Check version changes
         id: check-version
         run: |
-          # Get the current version from Cargo.toml
           CURRENT_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | cut -d '"' -f2)
           LATEST_TAG=$(git tag --list 'c2patool-*' --sort=-v:refname | head -n1 | sed 's/c2patool-//')
 
@@ -38,13 +37,21 @@ jobs:
           if [ -z "$LATEST_TAG" ]; then
             echo "No previous tags found. This will be the first release."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=c2patool-$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           elif [ "$CURRENT_VERSION" != "$LATEST_TAG" ]; then
             echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=c2patool-$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Create tag if required
+        if: steps.check-version.outputs.should_release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "c2patool-${{ steps.check-version.outputs.version }}" -m "Release c2patool-${{ steps.check-version.outputs.version }}"
+          git push origin --tags
 
   create-release-draft:
     name: Create Release Draft
@@ -64,7 +71,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          name: ${{ needs.check-version.outputs.c2patool-version }}
+          name: c2patool-${{ needs.check-version.outputs.c2patool-version }}
           draft: true
           generate_release_notes: true
           body: |
@@ -78,19 +85,19 @@ jobs:
 
             ### macOS
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.zip -o c2patool.zip
+            curl -L https://github.com/${{ github.repository }}/releases/download/c2patool-${{ needs.check-version.outputs.c2patool-version }}/c2patool-${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.zip -o c2patool.zip
             unzip c2patool.zip
             ```
 
             ### Linux
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz -o c2patool.tar.gz
+            curl -L https://github.com/${{ github.repository }}/releases/download/c2patool-${{ needs.check-version.outputs.c2patool-version }}/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz -o c2patool.tar.gz
             tar -xzf c2patool.tar.gz
             ```
 
             ### Windows
             ```powershell
-            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ needs.check-version.outputs.c2patool-version }}/${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.zip" -OutFile "c2patool.zip"
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/c2patool-${{ needs.check-version.outputs.c2patool-version }}/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.zip" -OutFile "c2patool.zip"
             Expand-Archive -Path c2patool.zip -DestinationPath .
             ```
 
@@ -109,19 +116,19 @@ jobs:
         include:
           - os: macos-latest
             artifact_name: c2patool_mac_universal.zip
-            uploaded_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.zip
-            sbom_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin-sbom.json
-            checksum_name: ${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.sha256
+            uploaded_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.zip
+            sbom_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin-sbom.json
+            checksum_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-universal-apple-darwin.sha256
           - os: ubuntu-latest
             artifact_name: c2patool_linux_intel.tar.gz
-            uploaded_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz
-            sbom_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu-sbom.json
-            checksum_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
+            uploaded_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz
+            sbom_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu-sbom.json
+            checksum_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
           - os: windows-latest
             artifact_name: c2patool_win_intel.zip
-            uploaded_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.zip
-            sbom_asset_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc-sbom.json
-            checksum_name: ${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.sha256
+            uploaded_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.zip
+            sbom_asset_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc-sbom.json
+            checksum_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-pc-windows-msvc.sha256
 
     steps:
       - name: Checkout repository
@@ -143,7 +150,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run make release
-        run: cd cli && make release
+        run: |
+          cd cli
+          make release
+          if [ $? -ne 0 ]; then
+            echo "Error: Build failed"
+            exit 1
+          fi
 
       - name: Generate checksums
         run: |
@@ -171,6 +184,12 @@ jobs:
           files: cli/c2patool-sbom.json
           draft: false
           prerelease: false
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf target/
+          rm -f cli/c2patool-sbom.json
 
   publish-release:
     name: Publish Release
