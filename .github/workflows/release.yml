@@ -33,14 +33,31 @@ jobs:
         run: |
           if [ "${{ runner.os }}" == "macos" ]; then
             brew install lipo
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
           fi
           if [ "${{ runner.os }}" == "windows" ]; then
             choco install 7zip
           fi
+          if [ "${{ runner.os }}" == "ubuntu" ]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config libssl-dev
+          fi
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Build
         run: |
           cd cli
+          cargo build --release
           ${{ matrix.build_command }}
 
       - name: Upload artifact
