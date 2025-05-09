@@ -39,7 +39,9 @@ jobs:
           fi
 
       - name: Build
-        run: ${{ matrix.build_command }}
+        run: |
+          cd cli
+          ${{ matrix.build_command }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
