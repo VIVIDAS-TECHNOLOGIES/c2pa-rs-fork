@@ -3,22 +3,22 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
-    publish-c2patool-binaries:
+  publish-c2patool-binaries:
     name: Publish c2patool binaries
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-latest, ubuntu-latest, windows-latest ]
-        rust_version: [ stable ]
-        experimental: [ false ]
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        rust_version: [stable]
+        experimental: [false]
         include:
           - os: macos-latest
             artifact_name: c2patool_mac_universal.zip
@@ -50,7 +50,7 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-sbom
-          version: '0.9.1'
+          version: "0.9.1"
 
       - name: Cache Rust dependencies
         if: ${{ env.RELEASE_TAG }}
