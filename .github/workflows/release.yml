@@ -6,8 +6,29 @@ on:
       - "v*"
 
 jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            Release of c2patool ${{ github.ref_name }}
+            
+            This release includes builds for:
+            - macOS (Universal)
+            - Windows
+            - Linux
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-c2patool-binaries:
     name: Publish c2patool binaries
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -50,22 +71,6 @@ jobs:
 
       - name: Run make release
         run: cd cli && make release
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: Release ${{ github.ref_name }}
-          body: |
-            Release of c2patool ${{ github.ref_name }}
-            
-            This release includes builds for:
-            - macOS (Universal)
-            - Windows
-            - Linux
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload binary to GitHub
         uses: svenstaro/upload-release-action@v1-release
