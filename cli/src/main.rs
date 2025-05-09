@@ -18,34 +18,33 @@
 /// is given, this will generate a summary report of any claims
 /// in that file. If a manifest definition JSON file is specified,
 /// the claim will be added to any existing claims.
-use std::{
-    fs::{create_dir_all, remove_dir_all, remove_file, File},
-    io::Write,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::fs::{create_dir_all, remove_dir_all, remove_file, File};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+use std::io::Write;
 
 use anyhow::{anyhow, bail, Context, Result};
-use c2pa::{Builder, ClaimGeneratorInfo, Error, Ingredient, ManifestDefinition, Reader, Signer};
-use cawg_identity::validator::CawgValidator;
 use clap::{Parser, Subcommand};
-use log::debug;
-use serde::Deserialize;
-use signer::SignConfig;
-#[cfg(not(target_os = "wasi"))]
+use c2pa::{
+    Builder, Ingredient, ManifestDefinition, Reader, Signer,
+    validation_status::ValidationStatus,
+    ClaimGeneratorInfo,
+};
+use cawg_identity::validator::CawgValidator;
+use futures::executor::block_on;
+use glob::glob;
+use log::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 use url::Url;
-#[cfg(target_os = "wasi")]
-use wstd::runtime::block_on;
 
-use crate::{
-    callback_signer::{CallbackSigner, CallbackSignerConfig, ExternalProcessRunner},
-    info::info,
-};
-
+use crate::callback_signer::{CallbackSigner, CallbackSignerConfig, ExternalProcessRunner};
+use crate::signer::SignConfig;
+use crate::info::info;
 mod info;
 mod tree;
-
 mod callback_signer;
 mod signer;
 
@@ -186,7 +185,7 @@ enum Commands {
         /// The fragments_glob pattern should only match fragment file names not the full paths (e.g. "myfile_abc*[0-9].m4s"
         /// to match [myfile_abc1.m4s, myfile_abc2180.m4s, ...] )
         #[arg(long = "fragments_glob", verbatim_doc_comment)]
-        fragments_glob: Option<PathBuf>,
+        fragments_glob: Option<PathBuf>
     },
 }
 
@@ -202,10 +201,10 @@ struct ManifestDef {
 // Convert certain errors to output messages.
 fn special_errs(e: c2pa::Error) -> anyhow::Error {
     match e {
-        Error::JumbfNotFound => anyhow!("No claim found"),
-        Error::FileNotFound(name) => anyhow!("File not found: {}", name),
-        Error::UnsupportedType => anyhow!("Unsupported file type"),
-        Error::PrereleaseError => anyhow!("Prerelease claim found"),
+        c2pa::Error::JumbfNotFound => anyhow!("No claim found"),
+        c2pa::Error::FileNotFound(name) => anyhow!("File not found: {}", name),
+        c2pa::Error::UnsupportedType => anyhow!("Unsupported file type"),
+        c2pa::Error::PrereleaseError => anyhow!("Prerelease claim found"),
         _ => e.into(),
     }
 }
@@ -431,7 +430,7 @@ fn sign_fragmented(
     frag_pattern: &PathBuf,
     output_path: &Path,
 ) -> Result<()> {
-    // search folders for init segments
+    // Original non-DASH handling
     let ip = init_pattern.to_str().ok_or(c2pa::Error::OtherError(
         "could not parse source pattern".into(),
     ))?;
@@ -467,12 +466,17 @@ fn sign_fragmented(
     if count == 0 {
         println!("No files matching pattern: {}", ip);
     }
+
     Ok(())
 }
 
-fn verify_fragmented(init_pattern: &Path, frag_pattern: &Path) -> Result<Vec<Reader>> {
+fn verify_fragmented(
+    init_pattern: &Path,
+    frag_pattern: &Path,
+) -> Result<Vec<Reader>> {
     let mut readers = Vec::new();
 
+    // Original non-DASH handling
     let ip = init_pattern
         .to_str()
         .context("could not parse source pattern")?;
@@ -570,7 +574,9 @@ fn main() -> Result<()> {
 
     let is_fragment = matches!(
         &args.command,
-        Some(Commands::Fragment { fragments_glob: _ })
+        Some(Commands::Fragment { 
+            fragments_glob: _
+        })
     );
 
     // configure the SDK
@@ -694,13 +700,22 @@ fn main() -> Result<()> {
 
         if let Some(output) = args.output {
             // fragmented embedding
-            if let Some(Commands::Fragment { fragments_glob }) = &args.command {
+            if let Some(Commands::Fragment {
+                fragments_glob
+            }) = &args.command
+            {
                 if output.exists() && !output.is_dir() {
                     bail!("Output cannot point to existing file, must be a directory");
                 }
 
-                if let Some(fg) = &fragments_glob {
-                    return sign_fragmented(&mut builder, signer.as_ref(), &args.path, fg, &output);
+                if let Some(fg) = fragments_glob {
+                    return sign_fragmented(
+                        &mut builder,
+                        signer.as_ref(),
+                        &args.path,
+                        fg,
+                        &output,
+                    );
                 } else {
                     bail!("fragments_glob must be set");
                 }
@@ -789,14 +804,21 @@ fn main() -> Result<()> {
         validate_cawg(&mut reader)?;
         println!("{:#?}", reader);
     } else if let Some(Commands::Fragment {
-        fragments_glob: Some(fg),
+        fragments_glob,
     }) = &args.command
     {
-        let stores = verify_fragmented(&args.path, fg)?;
-        if stores.len() == 1 {
-            println!("{}", stores[0]);
+        if let Some(fg) = fragments_glob {
+            let stores = verify_fragmented(
+                &args.path,
+                fg,
+            )?;
+            if stores.len() == 1 {
+                println!("{}", stores[0]);
+            } else {
+                println!("{} Init manifests validated", stores.len());
+            }
         } else {
-            println!("{} Init manifests validated", stores.len());
+            bail!("fragments_glob must be set");
         }
     } else {
         let mut reader = Reader::from_file(&args.path).map_err(special_errs)?;
