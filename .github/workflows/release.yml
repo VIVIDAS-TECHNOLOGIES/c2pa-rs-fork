@@ -12,7 +12,6 @@ jobs:
   publish-c2patool-binaries:
     name: Publish c2patool binaries
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
