@@ -5,102 +5,81 @@ on:
     tags:
       - 'v*'
 
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
 jobs:
-  build:
+    publish-c2patool-binaries:
+    name: Publish c2patool binaries
     runs-on: ${{ matrix.os }}
+
     strategy:
+      fail-fast: false
       matrix:
+        os: [ macos-latest, ubuntu-latest, windows-latest ]
+        rust_version: [ stable ]
+        experimental: [ false ]
         include:
           - os: macos-latest
             artifact_name: c2patool_mac_universal.zip
-            build_command: make release
-          - os: windows-latest
-            artifact_name: c2patool_win_intel.zip
-            build_command: make release
+            uploaded_asset_name: ${{ env.RELEASE_TAG }}-universal-apple-darwin.zip
+            sbom_asset_name: ${{ env.RELEASE_TAG }}-universal-apple-darwin-sbom.json
           - os: ubuntu-latest
             artifact_name: c2patool_linux_intel.tar.gz
-            build_command: make release
+            uploaded_asset_name: ${{ env.RELEASE_TAG }}-x86_64-unknown-linux-gnu.tar.gz
+            sbom_asset_name: ${{ env.RELEASE_TAG }}-x86_64-unknown-linux-gnu-sbom.json
+          - os: windows-latest
+            artifact_name: c2patool_win_intel.zip
+            uploaded_asset_name: ${{ env.RELEASE_TAG }}-x86_64-pc-windows-msvc.zip
+            sbom_asset_name: ${{ env.RELEASE_TAG }}-x86_64-pc-windows-msvc-sbom.json
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        if: ${{ env.RELEASE_TAG }}
+        uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        if: ${{ env.RELEASE_TAG }}
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt, clippy
+          toolchain: ${{ matrix.rust_version }}
+          components: llvm-tools-preview
 
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install lipo
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install 7zip -y
-
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v3
+      - name: Install cargo-sbom
+        if: ${{ env.RELEASE_TAG }}
+        uses: baptiste0928/cargo-install@v3
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          crate: cargo-sbom
+          version: '0.9.1'
 
-      - name: Build
-        run: |
-          cd cli
-          cargo build --release
-          ${{ matrix.build_command }}
+      - name: Cache Rust dependencies
+        if: ${{ env.RELEASE_TAG }}
+        uses: Swatinem/rust-cache@v2
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Run make release
+        if: ${{ env.RELEASE_TAG }}
+        run: cd cli && make release
+
+      - name: Upload binary to GitHub
+        if: ${{ env.RELEASE_TAG }}
+        uses: svenstaro/upload-release-action@v1-release
         with:
-          name: ${{ matrix.artifact_name }}
-          path: target/${{ matrix.artifact_name }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/${{ matrix.artifact_name }}
+          asset_name: ${{ matrix.uploaded_asset_name }}
+          tag: ${{ env.RELEASE_TAG }}
+          overwrite: true
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Generate SBOM
+        if: ${{ env.RELEASE_TAG }}
+        run: cd cli && cargo sbom > c2patool-sbom.json
 
-      - name: Get version from Cargo.toml
-        id: get_version
-        run: |
-          VERSION=$(grep '^version = ' cli/Cargo.toml | cut -d'"' -f2)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Upload SBOM to Github
+        if: ${{ env.RELEASE_TAG }}
+        uses: svenstaro/upload-release-action@v1-release
         with:
-          path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: Release v${{ steps.get_version.outputs.version }}
-          body: |
-            Release of c2patool v${{ steps.get_version.outputs.version }}
-            
-            This release includes builds for:
-            - macOS (Universal)
-            - Windows
-            - Linux
-          files: |
-            artifacts/c2patool_mac_universal.zip
-            artifacts/c2patool_win_intel.zip
-            artifacts/c2patool_linux_intel.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: cli/c2patool-sbom.json
+          asset_name: ${{ matrix.sbom_asset_name }}
+          tag: ${{ env.RELEASE_TAG }}
+          overwrite: true
