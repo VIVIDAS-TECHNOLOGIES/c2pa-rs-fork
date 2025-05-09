@@ -1,175 +1,83 @@
 name: Release
 
-permissions:
-  pull-requests: write
-  contents: write
-
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
 jobs:
-  check-version:
-    name: Check version changes
-    runs-on: ubuntu-latest
-    outputs:
-      c2patool-version: ${{ steps.check-version.outputs.version }}
-      should-release: ${{ steps.check-version.outputs.should_release }}
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: c2patool_mac_universal.zip
+            build_command: make release
+          - os: windows-latest
+            artifact_name: c2patool_win_intel.zip
+            build_command: make release
+          - os: ubuntu-latest
+            artifact_name: c2patool_linux_intel.tar.gz
+            build_command: make release
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
+          components: rustfmt, clippy
 
-      - name: Check version changes
-        id: check-version
+      - name: Install dependencies
         run: |
-          CURRENT_VERSION=$(grep -m1 '^version = ' cli/Cargo.toml | cut -d '"' -f2)
-          LATEST_TAG=$(git tag --list 'c2patool-*' --sort=-v:refname | head -n1 | sed 's/c2patool-//')
-
-          if [ -z "$CURRENT_VERSION" ]; then
-            echo "Error: Unable to determine the current version from Cargo.toml"
-            exit 1
+          if [ "${{ runner.os }}" == "macos" ]; then
+            brew install lipo
+          fi
+          if [ "${{ runner.os }}" == "windows" ]; then
+            choco install 7zip
           fi
 
-          if [ -z "$LATEST_TAG" ]; then
-            echo "No previous tags found. This will be the first release."
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          elif [ "$CURRENT_VERSION" != "$LATEST_TAG" ]; then
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Build
+        run: ${{ matrix.build_command }}
 
-      - name: Create tag if required
-        if: steps.check-version.outputs.should_release == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          TAG_NAME="c2patool-${{ steps.check-version.outputs.version }}"
-          if ! git tag -l "$TAG_NAME" | grep -q "$TAG_NAME"; then
-            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-            git push origin "$TAG_NAME"
-            # Verify tag was created and pushed
-            if ! git ls-remote --tags origin "$TAG_NAME" | grep -q "$TAG_NAME"; then
-              echo "Failed to create and push tag $TAG_NAME"
-              exit 1
-            fi
-          fi
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: target/${{ matrix.artifact_name }}
 
-  create-release-draft:
-    name: Create Release Draft
-    needs: check-version
-    if: needs.check-version.outputs.should-release == 'true'
+  release:
+    needs: build
     runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          VERSION=$(grep '^version = ' cli/Cargo.toml | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          path: artifacts
 
       - name: Create Release
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          name: c2patool-${{ needs.check-version.outputs.c2patool-version }}
-          tag_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}
-          draft: true
-          generate_release_notes: true
+          name: Release v${{ steps.get_version.outputs.version }}
           body: |
-            ## What's Changed
-
-            This release includes the following changes:
-
-            ${{ github.event.head_commit.message }}
-
-            ## Installation
-
-            ### Linux
-            ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/c2patool-${{ needs.check-version.outputs.c2patool-version }}/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.tar.gz -o c2patool.tar.gz
-            tar -xzf c2patool.tar.gz
-            ```
-
-  publish-c2patool-binaries:
-    name: Publish c2patool binaries
-    runs-on: ubuntu-latest
-    needs: [check-version, create-release-draft]
-    if: needs.check-version.outputs.should-release == 'true'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          components: llvm-tools-preview
-
-      - name: Install cargo-sbom
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-sbom
-          version: "0.9.1"
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run make release
-        run: |
-          cd cli
-          make release
-          if [ $? -ne 0 ]; then
-            echo "Error: Build failed"
-            exit 1
-          fi
-
-      - name: Generate checksums
-        run: |
-          shasum -a 256 target/c2patool_linux_intel.tar.gz > target/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
-
-      - name: Upload binary to GitHub
-        uses: softprops/action-gh-release@v1
-        with:
-          release_id: ${{ needs.create-release-draft.outputs.release_id }}
+            Release of c2patool v${{ steps.get_version.outputs.version }}
+            
+            This release includes builds for:
+            - macOS (Universal)
+            - Windows
+            - Linux
           files: |
-            target/c2patool_linux_intel.tar.gz
-            target/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
-
-      - name: Generate SBOM
-        run: cd cli && cargo sbom > c2patool-sbom.json
-
-      - name: Upload SBOM to Github
-        uses: softprops/action-gh-release@v1
-        with:
-          release_id: ${{ needs.create-release-draft.outputs.release_id }}
-          files: cli/c2patool-sbom.json
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -rf target/
-          rm -f cli/c2patool-sbom.json
-
-  publish-release:
-    name: Publish Release
-    needs: [create-release-draft, publish-c2patool-binaries]
-    if: needs.check-version.outputs.should-release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish Release
-        uses: softprops/action-gh-release@v1
-        with:
-          release_id: ${{ needs.create-release-draft.outputs.release_id }}
-          draft: false
-          prerelease: false
+            artifacts/c2patool_mac_universal.zip
+            artifacts/c2patool_win_intel.zip
+            artifacts/c2patool_linux_intel.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
