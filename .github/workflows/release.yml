@@ -67,7 +67,7 @@ jobs:
     if: needs.check-version.outputs.should-release == 'true'
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
 
     steps:
       - name: Checkout repository
@@ -75,11 +75,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create Release Draft
+      - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
           name: c2patool-${{ needs.check-version.outputs.c2patool-version }}
+          tag_name: c2patool-${{ needs.check-version.outputs.c2patool-version }}
           draft: true
           generate_release_notes: true
           body: |
@@ -135,23 +136,13 @@ jobs:
         run: |
           shasum -a 256 target/c2patool_linux_intel.tar.gz > target/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
 
-      - name: Verify tag exists
-        if: needs.check-version.outputs.should-release == 'true'
-        run: |
-          TAG_NAME="c2patool-${{ needs.check-version.outputs.c2patool-version }}"
-          if ! git ls-remote --tags origin "$TAG_NAME" | grep -q "$TAG_NAME"; then
-            echo "Tag $TAG_NAME does not exist. Cannot proceed with release."
-            exit 1
-          fi
-
       - name: Upload binary to GitHub
         uses: softprops/action-gh-release@v1
         with:
+          release_id: ${{ needs.create-release-draft.outputs.release_id }}
           files: |
             target/c2patool_linux_intel.tar.gz
             target/c2patool-${{ needs.check-version.outputs.c2patool-version }}-x86_64-unknown-linux-gnu.sha256
-          draft: false
-          prerelease: false
 
       - name: Generate SBOM
         run: cd cli && cargo sbom > c2patool-sbom.json
@@ -159,9 +150,8 @@ jobs:
       - name: Upload SBOM to Github
         uses: softprops/action-gh-release@v1
         with:
+          release_id: ${{ needs.create-release-draft.outputs.release_id }}
           files: cli/c2patool-sbom.json
-          draft: false
-          prerelease: false
 
       - name: Cleanup
         if: always()
@@ -178,6 +168,7 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
+          release_id: ${{ needs.create-release-draft.outputs.release_id }}
           draft: false
           prerelease: false
         env:
