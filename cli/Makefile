@@ -58,9 +58,12 @@ build-release-linux:
 	# First stage: Build with proc-macro support
 	cargo build --release
 	# Second stage: Create statically linked binary
+	rustup target add x86_64-unknown-linux-gnu
 	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu
+	# Ensure target directory exists
+	mkdir -p target/release
 	# Copy the statically linked binary to the release directory
-	cp target/x86_64-unknown-linux-gnu/release/c2patool target/release/c2patool
+	cp target/x86_64-unknown-linux-gnu/release/c2patool target/release/c2patool || (echo "Failed to copy binary. Check if build was successful." && exit 1)
 
 # make release
 # Builds and packages a zip for c2patool for each platform
