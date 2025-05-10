@@ -59,7 +59,11 @@ build-release-linux:
 	cargo build --release
 	# Second stage: Create statically linked binary
 	rustup target add x86_64-unknown-linux-gnu
-	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu
+	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu -v
+	# Debug: List contents of build directories
+	@echo "Checking build directories..."
+	@ls -la target/release/
+	@ls -la target/x86_64-unknown-linux-gnu/release/ || echo "Target directory not found"
 	# Ensure target directory exists
 	mkdir -p target/release
 	# Copy the statically linked binary to the release directory
