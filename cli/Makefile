@@ -55,12 +55,9 @@ build-release-mac-universal: build-release-mac-arm build-release-mac-x86
 	lipo -create -output ../target/release/c2patool ../target/aarch64-apple-darwin/release/c2patool ../target/x86_64-apple-darwin/release/c2patool
 
 build-release-linux:
-	mkdir -p ../target/release
-	@echo "Building statically linked binary..."
-	rustup target add x86_64-unknown-linux-musl
-	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-musl
-	@echo "Build completed. Binary should be in target/x86_64-unknown-linux-musl/release/c2patool"
-	cp target/x86_64-unknown-linux-musl/release/c2patool ../target/release/c2patool
+	@echo "Building for Ubuntu 22.04..."
+	rustup target add x86_64-unknown-linux-gnu
+	RUSTFLAGS="-C target-cpu=x86-64" cargo build --release --target x86_64-unknown-linux-gnu
 
 # make release
 # Builds and packages a zip for c2patool for each platform
