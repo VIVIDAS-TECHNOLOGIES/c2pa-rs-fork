@@ -57,12 +57,18 @@ build-release-mac-universal: build-release-mac-arm build-release-mac-x86
 build-release-linux:
 	@echo "Building for Ubuntu 22.04..."
 	rustup target add x86_64-unknown-linux-gnu
-	RUSTFLAGS="-C target-cpu=x86-64" cargo build --release --target x86_64-unknown-linux-gnu
-	@echo "Checking build output location..."
-	@ls -la target/x86_64-unknown-linux-gnu/release/ || echo "Target directory not found"
+	RUSTFLAGS="-C target-cpu=x86-64" cargo build --release
+	@echo "Checking build output locations..."
+	@echo "Current directory: $(shell pwd)"
+	@echo "Listing target directory:"
+	@ls -la target/ || echo "Target directory not found"
+	@echo "Listing release directory:"
+	@ls -la target/release/ || echo "Release directory not found"
+	@echo "Listing target platform directory:"
+	@ls -la target/x86_64-unknown-linux-gnu/release/ || echo "Target platform directory not found"
 	@echo "Copying Linux binary to release directory..."
 	mkdir -p target/release
-	cp target/x86_64-unknown-linux-gnu/release/c2patool target/release/c2patool || (echo "Failed to copy binary. Check if build was successful." && exit 1)
+	cp target/release/c2patool target/release/c2patool || (echo "Failed to copy binary. Check if build was successful." && exit 1)
 
 # make release
 # Builds and packages a zip for c2patool for each platform
