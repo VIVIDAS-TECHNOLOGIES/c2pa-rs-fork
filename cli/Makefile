@@ -56,14 +56,22 @@ build-release-mac-universal: build-release-mac-arm build-release-mac-x86
 
 build-release-linux:
 	# First stage: Build with proc-macro support
+	@echo "Stage 1: Building with proc-macro support..."
 	cargo build --release
 	# Second stage: Create statically linked binary
+	@echo "Stage 2: Adding target..."
 	rustup target add x86_64-unknown-linux-gnu
+	@echo "Stage 3: Building statically linked binary..."
 	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu -v
 	# Debug: List contents of build directories
 	@echo "Checking build directories..."
-	@ls -la target/release/
-	@ls -la target/x86_64-unknown-linux-gnu/release/ || echo "Target directory not found"
+	@echo "Current directory: $(shell pwd)"
+	@echo "Listing target directory:"
+	@ls -la target/ || echo "Target directory not found"
+	@echo "Listing release directory:"
+	@ls -la target/release/ || echo "Release directory not found"
+	@echo "Listing target platform directory:"
+	@ls -la target/x86_64-unknown-linux-gnu/release/ || echo "Target platform directory not found"
 	# Ensure target directory exists
 	mkdir -p target/release
 	# Copy the statically linked binary to the release directory
