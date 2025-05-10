@@ -55,7 +55,12 @@ build-release-mac-universal: build-release-mac-arm build-release-mac-x86
 	lipo -create -output ../target/release/c2patool ../target/aarch64-apple-darwin/release/c2patool ../target/x86_64-apple-darwin/release/c2patool
 
 build-release-linux:
-	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release
+	# First stage: Build with proc-macro support
+	cargo build --release
+	# Second stage: Create statically linked binary
+	RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu
+	# Copy the statically linked binary to the release directory
+	cp target/x86_64-unknown-linux-gnu/release/c2patool target/release/c2patool
 
 # make release
 # Builds and packages a zip for c2patool for each platform
