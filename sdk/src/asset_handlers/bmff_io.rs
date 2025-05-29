@@ -65,7 +65,7 @@ const FULL_BOX_TYPES: &[&str; 80] = &[
     "txtC", "mime", "uri ", "uriI", "hmhd", "sthd", "vvhd", "medc",
 ];
 
-static SUPPORTED_TYPES: [&str; 14] = [
+static SUPPORTED_TYPES: [&str; 20] = [
     "avif",
     "heif",
     "heic",
@@ -73,6 +73,9 @@ static SUPPORTED_TYPES: [&str; 14] = [
     "m4a",
     "mov",
     "m4s",
+    "cmfv",  // CMAF video
+    "cmfa",  // CMAF audio
+    "cmft",  // CMAF text
     "application/mp4",
     "audio/mp4",
     "image/avif",
@@ -80,6 +83,9 @@ static SUPPORTED_TYPES: [&str; 14] = [
     "image/heif",
     "video/mp4",
     "video/quicktime",
+    "video/cmaf",  // CMAF video MIME type
+    "audio/cmaf",  // CMAF audio MIME type
+    "text/cmaf",   // CMAF text MIME type
 ];
 
 macro_rules! boxtype {
@@ -164,7 +170,12 @@ boxtype! {
     Vp09Box => 0x76703039,
     MetaBox => 0x6D657461,
     SchiBox => 0x73636869,
-    IlocBox => 0x696C6F63
+    IlocBox => 0x696C6F63,
+    CmftBox => 0x636d6674,
+    CmfaBox => 0x636d6661,
+    CmfvBox => 0x636d6676,
+    CmfsBox => 0x636d6673,
+    CmfpBox => 0x636d6670
 }
 
 struct BoxHeaderLite {
@@ -1345,6 +1356,12 @@ impl CAIWriter for BmffIO {
         let size = stream_len(input_stream)?;
         input_stream.rewind()?;
 
+        // Check if this is a CMAF file and validate it
+        // if self.bmff_format.contains("cmaf") {
+        //     self.validate_cmaf(input_stream)?;
+        //     input_stream.rewind()?;
+        // }
+
         // create root node
         let root_box = BoxInfo {
             path: "".to_string(),
@@ -1991,5 +2008,92 @@ pub mod tests {
             Err(Error::JumbfNotFound) => (),
             _ => unreachable!(),
         }
+    }
+}
+
+// CMAF-specific validation functions
+impl BmffIO {
+    /// Validates if the BMFF file conforms to CMAF specifications
+    fn validate_cmaf(&self, reader: &mut dyn CAIRead) -> Result<()> {
+        let size = stream_len(reader)?;
+        reader.rewind()?;
+
+        // create root node
+        let root_box = BoxInfo {
+            path: "".to_string(),
+            offset: 0,
+            size,
+            box_type: BoxType::Empty,
+            parent: None,
+            user_type: None,
+            version: None,
+            flags: None,
+        };
+
+        let (mut bmff_tree, root_token) = Arena::with_data(root_box);
+        let mut bmff_map: HashMap<String, Vec<Token>> = HashMap::new();
+
+        // build layout of the BMFF structure
+        build_bmff_tree(reader, size, &mut bmff_tree, &root_token, &mut bmff_map)?;
+
+        // Check for required CMAF boxes
+        self.validate_cmaf_boxes(&bmff_tree, &bmff_map)?;
+
+        // Check CMAF profile compatibility
+        self.validate_cmaf_profile(&bmff_tree, &bmff_map)?;
+
+        Ok(())
+    }
+
+    /// Validates presence of required CMAF boxes
+    fn validate_cmaf_boxes(
+        &self,
+        bmff_tree: &Arena<BoxInfo>,
+        bmff_map: &HashMap<String, Vec<Token>>,
+    ) -> Result<()> {
+        // Check for required boxes based on content type
+        let has_video = bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/avc1")
+            || bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/hev1");
+        let has_audio = bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/mp4a");
+        let has_text = bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/tx3g");
+
+        // Validate based on content type
+        if has_video {
+            if !bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/avc1")
+                && !bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/hev1")
+            {
+                return Err(Error::InvalidAsset("CMAF video track must use AVC or HEVC codec".to_string()));
+            }
+        }
+
+        if has_audio {
+            if !bmff_map.contains_key("/moov/trak/mdia/minf/stbl/stsd/mp4a") {
+                return Err(Error::InvalidAsset("CMAF audio track must use AAC codec".to_string()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validates CMAF profile compatibility
+    fn validate_cmaf_profile(
+        &self,
+        bmff_tree: &Arena<BoxInfo>,
+        bmff_map: &HashMap<String, Vec<Token>>,
+    ) -> Result<()> {
+        // Check for CMAF profile box
+        if let Some(profile_tokens) = bmff_map.get("/moov/meta/cmpf") {
+            for token in profile_tokens {
+                let box_info = &bmff_tree[*token].data;
+                if box_info.box_type != BoxType::CmfpBox {
+                    return Err(Error::InvalidAsset("Invalid CMAF profile box".to_string()));
+                }
+            }
+        }
+
+        // Additional profile-specific validation can be added here
+        // For example, checking for specific codec profiles, bitrate limits, etc.
+
+        Ok(())
     }
 }

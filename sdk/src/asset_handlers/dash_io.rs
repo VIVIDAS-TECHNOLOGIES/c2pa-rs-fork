@@ -84,7 +84,7 @@ impl AssetIO for DashIO {
     }
 
     fn supported_types(&self) -> &[&str] {
-        &["dash", "m4s"]
+        &["dash", "m4s", "cmfv", "cmfa", "cmft"]
     }
 
     fn asset_patch_ref(&self) -> Option<&dyn AssetPatch> {

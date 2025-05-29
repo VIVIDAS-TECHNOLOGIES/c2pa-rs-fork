@@ -8,6 +8,9 @@ The following table summarizes the supported media (asset) file formats.  This i
  | `avi`         | `video/msvideo`, `video/x-msvideo`, `video/avi`, `application/x-troff-msvideo`|
  | `avif`        | `image/avif`                                                                  |
  | `c2pa`        | `application/x-c2pa-manifest-store`                                           |
+ | `cmfa`        | `audio/cmaf`                                                                  |
+ | `cmft`        | `text/cmaf`                                                                   |
+ | `cmfv`        | `video/cmaf`                                                                  |
  | `dng`         | `image/x-adobe-dng`                                                           |
  | `gif`         | `image/gif`                                                                   |
  | `heic`        | `image/heic`                                                                  |
@@ -25,6 +28,6 @@ The following table summarizes the supported media (asset) file formats.  This i
  | `webp`        | `image/webp`                                                                  |
 
 NOTES:
-<sup>*</sup> Fragmented MP4 (DASH) is supported only for file-based operations from the Rust library.
+<sup>*</sup> Fragmented MP4 (DASH) and CMAF are supported only for file-based operations from the Rust library.
 <br/>
 <sup>**</sup> Read-only

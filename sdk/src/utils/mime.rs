@@ -42,6 +42,9 @@ pub fn extension_to_mime(extension: &str) -> Option<&'static str> {
         "arw" => "image/x-sony-arw",
         "nef" => "image/x-nikon-nef",
         "c2pa" | "application/x-c2pa-manifest-store" | "application/c2pa" => "application/c2pa",
+        "cmfv" => "video/cmaf",
+        "cmfa" => "audio/cmaf",
+        "cmft" => "text/cmaf",
         _ => return None,
     })
 }
@@ -89,6 +92,9 @@ pub fn format_to_extension(format: &str) -> Option<&'static str> {
         "arw" | "image/x-sony-arw" => "arw",
         "nef" | "image/x-nikon-nef" => "nef",
         "c2pa" | "application/x-c2pa-manifest-store" | "application/c2pa" => "c2pa",
+        "cmfv" | "video/cmaf" => "cmfv",
+        "cmfa" | "audio/cmaf" => "cmfa",
+        "cmft" | "text/cmaf" => "cmft",
         _ => return None,
     })
 }
