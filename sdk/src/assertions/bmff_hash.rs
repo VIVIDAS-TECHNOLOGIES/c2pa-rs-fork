@@ -408,7 +408,7 @@ impl BmffHash {
             )?;
 
             init_stream.rewind()?;
-            let hash = hash_stream_by_alg(&curr_alg, &mut init_stream, Some(exclusions), true)?;
+            let hash = hash_stream_by_alg_2(&curr_alg, &mut init_stream, Some(exclusions), true)?;
 
             mpd_mm.init_hash = Some(ByteBuf::from(hash));
 
@@ -453,28 +453,42 @@ impl BmffHash {
         Ok(output)
     }
 
+    /// Helper function to validate fragment structure
+    fn validate_fragment_structure(box_infos: &[BoxInfoLite]) -> crate::error::Result<()> {
+        let moof_count = box_infos.iter().filter(|b| b.path == "moof").count();
+        let mdat_count = box_infos.iter().filter(|b| b.path == "mdat").count();
+        
+        if moof_count == 0 {
+            return Err(Error::InvalidAsset("no moof found in fragment".to_string()));
+        }
+        
+        if mdat_count == 0 {
+            return Err(Error::InvalidAsset("no mdat found in fragment".to_string()));
+        }
+        
+        Ok(())
+    }
+
     // Breaks box runs at fragment boundaries (moof boxes)
     fn split_fragment_boxes(boxes: &[BoxInfoLite]) -> Vec<Vec<BoxInfoLite>> {
-        let mut moof_list = Vec::new();
-
-        // start from 1st moof
-        if let Some(pos) = boxes.iter().position(|b| b.path == "moof") {
-            let mut box_list = vec![boxes[pos].clone()];
-
-            if pos == 0 {
-                return moof_list; // this does not contain fragmented content
-            }
-
-            for b in boxes[pos + 1..].iter() {
-                if b.path == "moof" {
-                    moof_list.push(box_list); // save box list
-                    box_list = Vec::new(); // start new box list
+        let mut fragment_list = Vec::new();
+        let mut current_fragment = Vec::new();
+        
+        for b in boxes {
+            if b.path == "moof" {
+                if !current_fragment.is_empty() {
+                    fragment_list.push(current_fragment);
+                    current_fragment = Vec::new();
                 }
-                box_list.push(b.clone());
             }
-            moof_list.push(box_list); // save last list
+            current_fragment.push(b.clone());
         }
-        moof_list
+        
+        if !current_fragment.is_empty() {
+            fragment_list.push(current_fragment);
+        }
+        
+        fragment_list
     }
 
     #[cfg(feature = "file_io")]
@@ -595,6 +609,9 @@ impl BmffHash {
 
                     // build Merkle tree for the moof chucks minus the excluded ranges
                     for (index, boxes) in moof_chunks.iter().enumerate() {
+                        // Validate fragment structure
+                        BmffHash::validate_fragment_structure(boxes)?;
+
                         // include just the range of this chunk so exclude boxes before and after
                         let mut curr_exclusions = exclusions.clone();
 
@@ -753,11 +770,6 @@ impl BmffHash {
                         }
                     }
                 }
-            } else {
-                // non-timed media so use iloc (awaiting use case/example since the iloc varies by format)
-                return Err(Error::HashMismatch(
-                    "Merkle iloc not yet supported".to_owned(),
-                ));
             }
         }
 
@@ -850,7 +862,7 @@ impl BmffHash {
                             )?;
 
                             // hash the entire fragment minus exclusions
-                            let hash = hash_stream_by_alg(
+                            let hash = hash_stream_by_alg_2(
                                 alg,
                                 &mut fragment_stream,
                                 Some(fragment_exclusions),
@@ -949,7 +961,7 @@ impl BmffHash {
                         )?;
 
                         // hash the entire fragment minus exclusions
-                        let hash = hash_stream_by_alg(
+                        let hash = hash_stream_by_alg_2(
                             alg,
                             fragment_stream,
                             Some(fragment_exclusions),
@@ -1032,13 +1044,8 @@ impl BmffHash {
             let c2pa_boxes = read_bmff_c2pa_boxes(&mut seg_reader)?;
             let box_infos = &c2pa_boxes.box_infos;
 
-            if box_infos.iter().filter(|b| b.path == "moof").count() != 1 {
-                return Err(Error::BadParam("expected 1 moof in fragment".to_string()));
-            }
-
-            if box_infos.iter().filter(|b| b.path == "mdat").count() != 1 {
-                return Err(Error::BadParam("expected 1 mdat in fragment".to_string()));
-            }
+            // Validate fragment structure
+            BmffHash::validate_fragment_structure(box_infos)?;
 
             // we don't currently support adding to fragments with existing manifests
             if !c2pa_boxes.bmff_merkle.is_empty() {
@@ -1076,10 +1083,11 @@ impl BmffHash {
                 &mm_cbor,
             )?;
 
+            // Find the first moof box to insert the UUID box
             let first_moof = box_infos
                 .iter()
                 .find(|b| b.path == "moof")
-                .ok_or(Error::BadParam("expected 1 moof in fragment".to_string()))?;
+                .ok_or(Error::BadParam("expected at least one moof in fragment".to_string()))?;
 
             let mut source = std::fs::File::open(seg)?;
             let output_filename = seg
@@ -1117,7 +1125,7 @@ impl BmffHash {
 
                 // hash the entire fragment minus fragment exclusions
                 let hash =
-                    hash_stream_by_alg(alg, &mut fragment_stream, Some(fragment_exclusions), true)?;
+                    hash_stream_by_alg_2(alg, &mut fragment_stream, Some(fragment_exclusions), true)?;
 
                 // add merkle leaf
                 leaves.push(crate::utils::merkle::MerkleNode(hash));
@@ -1308,3 +1316,61 @@ pub mod tests {
     }
 }
 */
+fn hash_stream_by_alg_2(
+    alg: &str,
+    stream: &mut dyn std::io::Read,
+    exclusions: Option<Vec<HashRange>>,
+    verify: bool,
+) -> crate::Result<Vec<u8>> {
+    let mut hasher = match alg {
+        "sha256" => Hasher::SHA256(sha2::Sha256::new()),
+        "sha384" => Hasher::SHA384(sha2::Sha384::new()),
+        "sha512" => Hasher::SHA512(sha2::Sha512::new()),
+        _ => return Err(Error::UnsupportedType),
+    };
+
+    const BUFFER_SIZE: usize = 8192; // 8KB buffer
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut total_bytes_read = 0;
+
+    if let Some(exclusions) = exclusions {
+        loop {
+            let bytes_read = stream.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            let mut i = 0;
+            while i < bytes_read {
+                let mut skip = false;
+                for exclusion in &exclusions {
+                    let current_pos = total_bytes_read + i;
+                    if current_pos >= exclusion.start() as usize
+                        && current_pos < (exclusion.start() + exclusion.length()) as usize
+                    {
+                        skip = true;
+                        break;
+                    }
+                }
+
+                if !skip {
+                    hasher.update(&buffer[i..i + 1]);
+                }
+                i += 1;
+            }
+            total_bytes_read += bytes_read;
+        }
+    } else {
+        loop {
+            let bytes_read = stream.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+        }
+    }
+
+    let hash = Hasher::finalize(hasher);
+    Ok(hash)
+}
+
