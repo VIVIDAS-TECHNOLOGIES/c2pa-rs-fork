@@ -26,13 +26,11 @@ use std::time::Duration;
 use std::io::Write;
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{Parser, Subcommand};
 use c2pa::{
-    Builder, Ingredient, ManifestDefinition, Reader, Signer,
-    validation_status::ValidationStatus,
-    ClaimGeneratorInfo,
+    identity::validator::CawgValidator, Builder, ClaimGeneratorInfo, Error, Ingredient,
+    ManifestDefinition, Reader, Signer, validation_status::ValidationStatus,
 };
-use cawg_identity::validator::CawgValidator;
+use clap::{Parser, Subcommand};
 use futures::executor::block_on;
 use glob::glob;
 use log::{debug, error, info, warn};
@@ -177,7 +175,7 @@ enum Commands {
     ///
     /// c2patool -m test2.json -o /my_output_folder "/my_renditions/**/my_init.mp4" fragment --fragments_glob "myfile_abc*[0-9].m4s"
     ///
-    /// Note: the glob patterns are quoted to prevent shell expansion.
+    /// NOTE: The glob patterns are quoted to prevent shell expansion.
     Fragment {
         /// Glob pattern to find the fragments of the asset. The path is automatically set to be the same as
         /// the init segment.
@@ -807,18 +805,15 @@ fn main() -> Result<()> {
         fragments_glob,
     }) = &args.command
     {
-        if let Some(fg) = fragments_glob {
-            let stores = verify_fragmented(
-                &args.path,
-                fg,
-            )?;
-            if stores.len() == 1 {
-                println!("{}", stores[0]);
-            } else {
-                println!("{} Init manifests validated", stores.len());
-            }
+        let mut stores = verify_fragmented(&args.path, fragments_glob.as_ref().unwrap())?;
+        if stores.len() == 1 {
+            validate_cawg(&mut stores[0])?;
+            println!("{}", stores[0]);
         } else {
-            bail!("fragments_glob must be set");
+            for store in &mut stores {
+                validate_cawg(store)?;
+            }
+            println!("{} Init manifests validated", stores.len());
         }
     } else {
         let mut reader = Reader::from_file(&args.path).map_err(special_errs)?;

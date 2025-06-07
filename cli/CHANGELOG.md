@@ -1,10 +1,45 @@
 # Changelog
 
-All changes to this project are documented in this file.  For a high-level summary of changes, see the [Release Notes](../docs/release-notes.md).
+All changes to C2PA Tool are documented in this file.  For additional information on versions 0.9.x and earlier, see the [Archived release motes](../docs/release-notes.md).
 
-This project adheres to [Semantic Versioning](https://semver.org), except that – as is typical in the Rust community – the minimum supported Rust version may be increased without a major version increase.
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), except that – as is typical in the Rust community – the minimum supported Rust version may be increased without a major version increase.
 
 Since version 0.10.0, the format of this changelog is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [0.18.0](https://github.com/contentauth/c2pa-rs/compare/c2patool-v0.17.0...c2patool-v0.18.0)
+_27 May 2025_
+
+### Added
+
+* Make OpenSSL a default feature ([#1118](https://github.com/contentauth/c2pa-rs/pull/1118))
+
+### Fixed
+
+* Remove use of workspace versioning for the moment ([#1136](https://github.com/contentauth/c2pa-rs/pull/1136))
+* Add CAWG support for fragmented BMFF ([#1114](https://github.com/contentauth/c2pa-rs/pull/1114))
+
+### Other
+
+* Remove unreleased changes to c2patool
+* Integrates prebuilt library release workflow ([#1126](https://github.com/contentauth/c2pa-rs/pull/1126))
+
+## [0.17.0](https://github.com/contentauth/c2pa-rs/compare/c2patool-v0.16.5...c2patool-v0.17.0)
+_16 May 2025_
+
+### Added
+
+* [**breaking**] Merge CAWG identity SDK into main C2PA crate ([#1089](https://github.com/contentauth/c2pa-rs/pull/1089))
+
+### Documented
+
+* Replace old c2patool release notes with CHANGELOG ([#1063](https://github.com/contentauth/c2pa-rs/pull/1063))
+
+## [0.16.6](https://github.com/contentauth/c2pa-rs/compare/c2patool-v0.16.5...c2patool-v0.16.6)
+_14 May 2025_
+
+### Documented
+
+* Replace old c2patool release notes with CHANGELOG ([#1063](https://github.com/contentauth/c2pa-rs/pull/1063))
 
 ## [0.16.5](https://github.com/contentauth/c2pa-rs/compare/c2patool-v0.16.4...c2patool-v0.16.5)
 _25 April 2025_

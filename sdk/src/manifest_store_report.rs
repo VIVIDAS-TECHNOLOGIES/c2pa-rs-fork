@@ -17,16 +17,16 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use atree::{Arena, Token};
-use c2pa_crypto::base64;
-#[cfg(feature = "v1_api")]
-use c2pa_status_tracker::StatusTracker;
 use extfmt::Hexlify;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg(feature = "v1_api")]
+use crate::status_tracker::StatusTracker;
 use crate::{
-    assertion::AssertionData, claim::Claim, store::Store, validation_results::ValidationResults,
-    validation_status::ValidationStatus, Result, ValidationState,
+    assertion::AssertionData, claim::Claim, crypto::base64, store::Store,
+    validation_results::ValidationResults, validation_status::ValidationStatus, Result,
+    ValidationState,
 };
 
 /// Low level JSON based representation of Manifest Store - used for debugging
@@ -239,11 +239,11 @@ impl ManifestStoreReport {
         for i in claim.ingredient_assertions() {
             let ingredient_assertion =
                 <crate::assertions::Ingredient as crate::assertion::AssertionBase>::from_assertion(
-                    i,
+                    i.assertion(),
                 )?;
 
             // is this an ingredient
-            if let Some(ref c2pa_manifest) = &ingredient_assertion.c2pa_manifest {
+            if let Some(c2pa_manifest) = &ingredient_assertion.c2pa_manifest() {
                 let label = Store::manifest_label_from_path(&c2pa_manifest.url());
 
                 if let Some(hash) = c2pa_manifest.hash().get(0..5) {

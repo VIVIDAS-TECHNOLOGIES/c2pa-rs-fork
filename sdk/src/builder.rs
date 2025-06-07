@@ -162,7 +162,7 @@ impl AssertionDefinition {
 ///
 /// # Example: Building and signing a manifest:
 ///
-/// ```
+///
 /// # use c2pa::Result;
 /// use std::path::PathBuf;
 ///
@@ -208,7 +208,6 @@ impl AssertionDefinition {
 /// )?;
 /// # Ok(())
 /// # }
-/// ```
 #[skip_serializing_none]
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "json_schema", derive(JsonSchema))]
@@ -410,6 +409,32 @@ impl Builder {
         } else {
             ingredient.with_stream_async(format, stream).await?
         };
+        // let id = ingredient
+        //     .label()
+        //     .or_else(|| Some(ingredient.instance_id()))
+        //     .map(|s| s.to_string());
+        // let action_type = if ingredient.is_parent() {
+        //     "c2pa.opened"
+        // } else {
+        //     "c2pa.placed"
+        // };
+        // if let Some(id) = id {
+        //     self.add_assertion(
+        //         Actions::LABEL,
+        //         &serde_json::json!(
+        //             {
+        //                 "actions": [
+        //                     {
+        //                         "action": action_type,
+        //                         "parameters": {
+        //                             "org.cai.ingredientIds": [&id]
+        //                         }
+        //                     }
+        //                 ]
+        //             }
+        //         ),
+        //     )?;
+        // };
         self.definition.ingredients.push(ingredient);
         #[allow(clippy::unwrap_used)]
         Ok(self.definition.ingredients.last_mut().unwrap()) // ok since we just added it
@@ -570,10 +595,10 @@ impl Builder {
                     .map_err(|_| Error::BadParam("Invalid ingredient path".to_string()))?;
                 let id = file.name().split('/').nth(2).unwrap_or_default();
                 if index >= builder.definition.ingredients.len() {
-                    return Err(Error::OtherError(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Invalid ingredient index {}", index),
-                    ))))?; // todo add specific error
+                    return Err(Error::OtherError(Box::new(std::io::Error::other(format!(
+                        "Invalid ingredient index {}",
+                        index
+                    )))))?; // todo add specific error
                 }
                 builder.definition.ingredients[index]
                     .resources_mut()
@@ -673,16 +698,25 @@ impl Builder {
             }
         }
 
-        let mut ingredient_map = HashMap::new();
         // add all ingredients to the claim
+        // We use a map to track the ingredient IDs and their hashed URIs
+        let mut ingredient_map = HashMap::new();
+
         for ingredient in &definition.ingredients {
-            //let ingredient = ingredient_builder.build(self)?;
+            // use the label if it exists, otherwise use the instance_id
+            let id = match ingredient.label() {
+                Some(label) => label.to_string(),
+                None => ingredient.instance_id().to_string(),
+            };
+
             let uri = ingredient.add_to_claim(
                 &mut claim,
                 definition.redactions.clone(),
                 Some(&self.resources),
             )?;
-            ingredient_map.insert(ingredient.instance_id().to_string(), uri);
+            if !id.is_empty() {
+                ingredient_map.insert(id, uri);
+            }
         }
 
         // add any additional assertions
@@ -692,6 +726,7 @@ impl Builder {
                     let version = labels::version(l);
 
                     let mut actions: Actions = manifest_assertion.to_assertion()?;
+                    //dbg!(format!("Actions: {:?} version: {:?}", actions, version));
 
                     let mut updates = Vec::new();
                     let mut index = 0;
@@ -703,10 +738,9 @@ impl Builder {
                             let mut uris = Vec::new();
                             for id in ids {
                                 if let Some(hash_url) = ingredient_map.get(&id) {
-                                    //updates.push((action_index, hash_url.clone()));
                                     uris.push(hash_url.clone());
                                 } else {
-                                    dbg!(format!("Action ingredientId not found: {id}"));
+                                    log::error!("Action ingredientId not found: {id}");
                                     // return Err(Error::BadParam(format!(
                                     //     "Action ingredientId not found: {id}"
                                     // )));
@@ -1015,7 +1049,7 @@ impl Builder {
     }
 
     #[cfg(feature = "file_io")]
-    // Internal utiltiy to set format and title based on destination filename.
+    // Internal utility to set format and title based on destination filename.
     //
     // Also sets the instance_id to a new UUID and ensures the destination file does not exist.
     fn set_asset_from_dest<P: AsRef<Path>>(&mut self, dest: P) -> Result<()> {
@@ -1031,6 +1065,7 @@ impl Builder {
                 "Destination file already exists".to_string(),
             ));
         };
+
         self.definition.format =
             crate::format_from_path(path).ok_or(crate::Error::UnsupportedType)?;
         self.definition.instance_id = format!("xmp:iid:{}", Uuid::new_v4());
@@ -1144,23 +1179,37 @@ impl Builder {
                 .await
         }
     }
+
+    /// Converts a manifest into a composed manifest with the specified format.
+    /// This wraps the bytes in the container format of the specified format.
+    /// So that it can be directly embedded into a stream of that format.
+    /// # Arguments
+    /// * `manifest_bytes` - The bytes of the manifest to convert.
+    /// * `format` - The format to convert to.
+    /// # Returns
+    /// * The bytes of the composed manifest.
+    /// # Errors
+    /// * Returns an [`Error`] if the manifest cannot be converted.
+    pub fn composed_manifest(manifest_bytes: &[u8], format: &str) -> Result<Vec<u8>> {
+        Store::get_composed_manifest(manifest_bytes, format)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
     #![allow(clippy::unwrap_used)]
-    use std::io::Cursor;
+    use std::{io::Cursor, vec};
 
-    use c2pa_crypto::raw_signature::SigningAlg;
     use serde_json::json;
     #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
     use wasm_bindgen_test::*;
 
     use super::*;
     use crate::{
-        assertions::BoxHash,
+        assertions::{c2pa_action, BoxHash},
         asset_handlers::jpeg_io::JpegIO,
+        crypto::raw_signature::SigningAlg,
         hash_stream_by_alg,
         utils::{test::write_jpeg_placeholder_stream, test_signer::test_signer},
         validation_results::ValidationState,
@@ -1173,9 +1222,8 @@ mod tests {
     fn parent_json() -> String {
         json!({
             "title": "Parent Test",
-            "format": "image/jpeg",
-            "instance_id": "12345",
-            "relationship": "parentOf"
+            "relationship": "parentOf",
+            "label": "INGREDIENT_1",
         })
         .to_string()
     }
@@ -1206,11 +1254,31 @@ mod tests {
                 {
                     "title": "Test",
                     "format": "image/jpeg",
-                    "instance_id": "12345",
-                    "relationship": "componentOf"
+                    "relationship": "componentOf",
+                    "label": "INGREDIENT_2",
                 }
             ],
             "assertions": [
+                {
+                    "label": "c2pa.actions",
+                    "data": {
+                        "actions": [
+                            {
+                                "action": "c2pa.opened",
+                                "parameters": {
+                                    "org.cai.ingredientIds": ["INGREDIENT_1"]
+                                },
+                            },
+                            {
+                                "action": "c2pa.placed",
+                                "parameters": {
+                                    "org.cai.ingredientIds": ["INGREDIENT_2"]
+                                },
+                            }
+
+                        ]
+                    }
+                },
                 {
                     "label": "org.test.assertion",
                     "data": "assertion"
@@ -1236,6 +1304,7 @@ mod tests {
     const TEST_IMAGE_CLOUD: &[u8] = include_bytes!("../tests/fixtures/cloud.jpg");
     const TEST_IMAGE: &[u8] = include_bytes!("../tests/fixtures/CA.jpg");
     const TEST_THUMBNAIL: &[u8] = include_bytes!("../tests/fixtures/thumbnail.jpg");
+    const TEST_MANIFEST_CLOUD: &[u8] = include_bytes!("../tests/fixtures/cloud_manifest.c2pa");
 
     #[test]
     /// example of creating a builder directly with a [`ManifestDefinition`]
@@ -1311,8 +1380,9 @@ mod tests {
             "thumbnail.jpg"
         );
         assert_eq!(definition.ingredients[0].title(), Some("Test"));
+        assert_eq!(definition.assertions[0].label, "c2pa.actions".to_string());
         assert_eq!(
-            definition.assertions[0].label,
+            definition.assertions[1].label,
             "org.test.assertion".to_string()
         );
 
@@ -1342,7 +1412,6 @@ mod tests {
         let mut dest = Cursor::new(Vec::new());
 
         let mut builder = Builder::from_json(&manifest_json()).unwrap();
-        builder.definition.claim_version = Some(1);
         builder
             .add_ingredient_from_stream(parent_json().to_string(), format, &mut source)
             .unwrap();
@@ -1370,12 +1439,12 @@ mod tests {
         builder.to_archive(&mut zipped).unwrap();
 
         // write the zipped stream to a file for debugging
-        #[cfg(not(target_os = "wasi"))] // target directory is outside of sandbox
-        std::fs::write("../target/test.zip", zipped.get_ref()).unwrap();
+        // #[cfg(not(target_os = "wasi"))] // target directory is outside of sandbox
+        // std::fs::write("../target/test.zip", zipped.get_ref()).unwrap();
 
         // unzip the manifest builder from the zipped stream
         zipped.rewind().unwrap();
-        let mut _builder = Builder::from_archive(&mut zipped).unwrap();
+        let mut builder = Builder::from_archive(&mut zipped).unwrap();
 
         // sign and write to the output stream
         let signer = test_signer(SigningAlg::Ps256);
@@ -1444,7 +1513,7 @@ mod tests {
             "sample1.heif",
             "sample1.m4a",
             "video1.mp4",
-            "cloud_manifest.c2pa",
+            "cloud_manifest.c2pa", // we need a new test for this since it will always fail
         ];
         for file_name in TESTFILES {
             let extension = file_name.split('.').next_back().unwrap();
@@ -1474,7 +1543,7 @@ mod tests {
             dest.rewind().unwrap();
             let manifest_store = Reader::from_stream(format, &mut dest).expect("from_bytes");
 
-            println!("{}", manifest_store);
+            //println!("{}", manifest_store);
             if format != "c2pa" {
                 // c2pa files will not validate since they have no associated asset
                 assert_ne!(manifest_store.validation_state(), ValidationState::Invalid);
@@ -1869,6 +1938,8 @@ mod tests {
     #[test]
     /// tests and illustrates how to add assets to a non-file based manifest by using a stream
     fn from_json_with_stream_full_resources() {
+        use crate::utils::test::setup_logger;
+        setup_logger();
         use crate::assertions::Relationship;
 
         let mut builder = Builder::from_json(MANIFEST_JSON).unwrap();
@@ -1952,8 +2023,30 @@ mod tests {
     }
 
     #[test]
+    fn test_composed_manifest() {
+        let manifest: &[u8; 4] = b"abcd";
+        let format = "image/jpeg";
+        let composed = Builder::composed_manifest(manifest, format).unwrap();
+        assert_eq!(composed.len(), 16);
+    }
+
     /// example of creating a builder directly with a [`ManifestDefinition`]
-    fn test_add_cloud_ingredient() {
+    #[cfg_attr(not(target_arch = "wasm32"), actix::test)]
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(target_os = "wasi")),
+        wasm_bindgen_test
+    )]
+    #[cfg_attr(target_os = "wasi", wstd::test)]
+    /// test if the sdk can add a cloud ingredient retrieved from a stream and a cloud manifest
+    // This works with or without the fetch_remote_manifests feature
+    async fn test_add_cloud_ingredient() {
+        // Save original settings
+        let original_remote_fetch =
+            crate::settings::get_settings_value("verify.remote_manifest_fetch").unwrap_or(true);
+
+        // Set our test settings
+        crate::settings::set_settings_value("verify.remote_manifest_fetch", false).unwrap();
+
         let mut input = Cursor::new(TEST_IMAGE_CLEAN);
         let mut cloud_image = Cursor::new(TEST_IMAGE_CLOUD);
 
@@ -1969,8 +2062,28 @@ mod tests {
             ..Default::default()
         };
 
+        let parent_json = json!({
+            "title": "Parent Test",
+            "format": "image/jpeg",
+            "instance_id": "12345",
+            "relationship": "parentOf",
+            "manifest_data": {
+                "format": "application/c2pa",
+                "identifier": "cloud_manifest"
+            }
+        })
+        .to_string();
+
+        // add the cloud manifest data to the builder
         builder
-            .add_ingredient_from_stream(parent_json(), "image/jpeg", &mut cloud_image)
+            .add_resource(
+                "cloud_manifest",
+                Cursor::new(Cursor::new(TEST_MANIFEST_CLOUD).get_ref()),
+            )
+            .unwrap();
+
+        builder
+            .add_ingredient_from_stream(parent_json, "image/jpeg", &mut cloud_image)
             .unwrap();
 
         builder
@@ -1987,9 +2100,79 @@ mod tests {
         output.set_position(0);
 
         let reader = Reader::from_stream("jpeg", &mut output).expect("from_bytes");
-        println!("reader = {reader}");
         let m = reader.active_manifest().unwrap();
         assert_eq!(m.ingredients().len(), 1);
         assert!(m.ingredients()[0].active_manifest().is_some());
+
+        // Restore original settings
+        crate::settings::set_settings_value("verify.remote_manifest_fetch", original_remote_fetch)
+            .unwrap();
+    }
+
+    #[test]
+    fn test_redaction() {
+        // the label of the assertion we are going to redact
+        const ASSERTION_LABEL: &str = "stds.schema-org.CreativeWork";
+
+        let mut input = Cursor::new(TEST_IMAGE);
+
+        let mut parent =
+            Ingredient::from_stream("image/jpeg", &mut Cursor::new(TEST_IMAGE)).unwrap();
+        parent.set_title("CA.jpg");
+        parent.set_relationship(crate::Relationship::ParentOf);
+
+        let parent_manifest_label = parent.active_manifest().unwrap();
+
+        let redacted_uri =
+            crate::jumbf::labels::to_assertion_uri(parent_manifest_label, ASSERTION_LABEL);
+
+        let parent_manifest_label = parent_manifest_label.to_owned();
+
+        // Create a parent with a c2pa_action type assertion.
+        let opened_action = crate::assertions::Action::new(c2pa_action::OPENED)
+            .set_parameter("org.cai.ingredientIds", [parent.instance_id().to_string()])
+            .unwrap();
+
+        let redacted_action = crate::assertions::Action::new("c2pa.redacted")
+            .set_reason("testing".to_owned())
+            .set_parameter("redacted".to_owned(), redacted_uri.clone())
+            .unwrap();
+
+        let actions = crate::assertions::Actions::new()
+            .add_action(opened_action)
+            .add_action(redacted_action);
+
+        let definition = ManifestDefinition {
+            claim_version: Some(1),
+            claim_generator_info: [ClaimGeneratorInfo::default()].to_vec(),
+            format: "image/jpeg".to_string(),
+            title: Some("Redaction Test".to_string()),
+            ingredients: vec![parent], // add the parent ingredient
+            redactions: Some(vec![redacted_uri]), // add the redaction
+            ..Default::default()
+        };
+
+        let mut builder = Builder {
+            definition,
+            ..Default::default()
+        };
+
+        builder.add_assertion(Actions::LABEL, &actions).unwrap();
+
+        let signer = test_signer(SigningAlg::Ps256);
+        // Embed a manifest using the signer.
+        let mut output = Cursor::new(Vec::new());
+        builder
+            .sign(signer.as_ref(), "jpeg", &mut input, &mut output)
+            .expect("builder sign");
+
+        output.set_position(0);
+
+        let reader = Reader::from_stream("jpeg", &mut output).expect("from_bytes");
+        println!("{reader}");
+        let m = reader.active_manifest().unwrap();
+        assert_eq!(m.ingredients().len(), 1);
+        let parent = reader.get_manifest(&parent_manifest_label).unwrap();
+        assert_eq!(parent.assertions().len(), 1);
     }
 }
