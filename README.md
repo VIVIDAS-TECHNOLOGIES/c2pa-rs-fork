@@ -1,3 +1,5 @@
+# !!!! DEPRECATED !!! 
+VISIT [https://github.com/VIVIDAS-TECHNOLOGIES/c2pa-rs-vt](https://github.com/VIVIDAS-TECHNOLOGIES/c2pa-rs-vt)
 # C2PA Rust library
 
 [![CI](https://github.com/contentauth/c2pa-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/contentauth/c2pa-rs/actions/workflows/ci.yml) [![Latest Version](https://img.shields.io/crates/v/c2pa.svg)](https://crates.io/crates/c2pa) [![docs.rs](https://img.shields.io/docsrs/c2pa)](https://docs.rs/c2pa/) [![codecov](https://codecov.io/gh/contentauth/c2pa-rs/branch/main/graph/badge.svg?token=YVHWI19EGN)](https://codecov.io/gh/contentauth/c2pa-rs)
